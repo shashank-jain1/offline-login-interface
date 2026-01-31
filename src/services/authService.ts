@@ -58,7 +58,7 @@ export async function loginOffline(email: string, password: string): Promise<Aut
     if (!cachedUser) {
       return {
         success: false,
-        error: 'No offline credentials found. Please login online first.',
+        error: 'No credentials found. Please login online first.',
       };
     }
 
@@ -101,6 +101,31 @@ export async function logout(): Promise<void> {
     await supabase.auth.signOut();
   } catch (error) {
     console.error('Logout error:', error);
+  }
+}
+
+export async function signup(email: string, password: string): Promise<AuthResult> {
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (data.user) {
+      return {
+        success: true,
+        userId: data.user.id,
+        email: data.user.email!,
+      };
+    }
+
+    return { success: false, error: 'Signup failed' };
+  } catch (error) {
+    return { success: false, error: 'Network error during signup' };
   }
 }
 

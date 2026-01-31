@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LogIn, Loader2, WifiOff, UserPlus } from 'lucide-react';
-import { login } from '../services/authService';
+import { login, signup } from '../services/authService';
 
 interface LoginProps {
   isOnline: boolean;
@@ -29,22 +29,10 @@ export function Login({ isOnline, onLoginSuccess }: LoginProps) {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auth_signup`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ email, password }),
-        }
-      );
+      const result = await signup(email, password);
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || 'Signup failed');
+      if (!result.success) {
+        setError(result.error || 'Signup failed');
         return;
       }
 

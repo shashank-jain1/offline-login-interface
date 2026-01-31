@@ -82,10 +82,21 @@ class IndexedDBService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['userDetails'], 'readwrite');
       const store = transaction.objectStore('userDetails');
-      const request = store.put(details);
+      const index = store.index('userId');
+      const getRequest = index.get(details.userId);
 
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      getRequest.onsuccess = () => {
+        const existingRecord = getRequest.result;
+        const dataToSave = existingRecord
+          ? { ...details, id: existingRecord.id } // Use existing id
+          : details; // New record, let autoIncrement handle id
+
+        const putRequest = store.put(dataToSave);
+        putRequest.onsuccess = () => resolve();
+        putRequest.onerror = () => reject(putRequest.error);
+      };
+
+      getRequest.onerror = () => reject(getRequest.error);
     });
   }
 
@@ -107,10 +118,14 @@ class IndexedDBService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['userDetails'], 'readonly');
       const store = transaction.objectStore('userDetails');
-      const index = store.index('pendingSync');
-      const request = index.getAll(true);
+      const request = store.getAll();
 
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => {
+        const allRecords = request.result || [];
+        // Filter for records with pendingSync === true
+        const pendingRecords = allRecords.filter(record => record.pendingSync === true);
+        resolve(pendingRecords);
+      };
       request.onerror = () => reject(request.error);
     });
   }
