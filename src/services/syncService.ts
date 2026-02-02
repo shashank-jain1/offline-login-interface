@@ -22,11 +22,19 @@ class SyncService {
     this.notifyListeners({ isSyncing: true, pendingCount: 0 });
 
     try {
-      // Check if we have a valid session
+      // Check if we have a valid session FIRST
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        throw new Error('Please log out and log back in to sync your changes');
+        // No valid session - stop immediately without trying to sync
+        const pendingRecords = await indexedDBService.getPendingSyncRecords();
+        this.isSyncing = false;
+        this.notifyListeners({
+          isSyncing: false,
+          pendingCount: pendingRecords.length,
+          error: 'Please log out and log back in to sync your changes',
+        });
+        return; // EXIT HERE - don't continue to sync
       }
 
       const pendingRecords = await indexedDBService.getPendingSyncRecords();
