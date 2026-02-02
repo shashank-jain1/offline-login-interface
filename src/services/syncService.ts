@@ -22,6 +22,21 @@ class SyncService {
     this.notifyListeners({ isSyncing: true, pendingCount: 0 });
 
     try {
+      // Check if we have a valid session FIRST
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // No valid session - stop immediately without trying to sync
+        const pendingRecords = await indexedDBService.getPendingSyncRecords();
+        this.isSyncing = false;
+        this.notifyListeners({
+          isSyncing: false,
+          pendingCount: pendingRecords.length,
+          error: 'Please log out and log back in to sync your changes',
+        });
+        return; // EXIT HERE - don't continue to sync
+      }
+
       const pendingRecords = await indexedDBService.getPendingSyncRecords();
 
       if (pendingRecords.length === 0) {
@@ -48,10 +63,16 @@ class SyncService {
       });
     } catch (error) {
       this.isSyncing = false;
-      const pendingRecords = await indexedDBService.getPendingSyncRecords();
+      let pendingCount = 0;
+      try {
+        const pendingRecords = await indexedDBService.getPendingSyncRecords();
+        pendingCount = pendingRecords.length;
+      } catch {
+        // Ignore error getting pending count
+      }
       this.notifyListeners({
         isSyncing: false,
-        pendingCount: pendingRecords.length,
+        pendingCount,
         error: error instanceof Error ? error.message : 'Sync failed',
       });
     }

@@ -69,7 +69,14 @@ export function SyncIndicator({ isOnline, onLogout }: SyncIndicatorProps) {
             </div>
           )}
 
-          {!syncStatus.isSyncing && syncStatus.pendingCount === 0 && syncStatus.lastSyncTime && (
+          {syncStatus.error && (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+              <span className="text-sm text-red-600">Sync failed: {syncStatus.error}</span>
+            </div>
+          )}
+
+          {!syncStatus.isSyncing && syncStatus.pendingCount === 0 && syncStatus.lastSyncTime && !syncStatus.error && (
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               <span className="text-sm text-gray-600">All synced</span>
