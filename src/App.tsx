@@ -21,8 +21,9 @@ function App() {
 
     const connectivityListener = (online: boolean) => {
       setIsOnline(online);
-      if (online) {
-        syncService.syncPendingData();
+      if (online && userSession) {
+        // Sync when coming back online
+        setTimeout(() => syncService.syncPendingData(), 1000);
       }
     };
 
@@ -31,10 +32,15 @@ function App() {
     return () => {
       connectivityDetector.removeListener(connectivityListener);
     };
-  }, []);
+  }, [userSession]);
 
   const handleLoginSuccess = (userId: string, email: string, isOfflineMode: boolean) => {
     setUserSession({ userId, email, isOfflineMode });
+    
+    // Trigger sync after login if online
+    if (isOnline) {
+      setTimeout(() => syncService.syncPendingData(), 1000);
+    }
   };
 
   const handleLogout = () => {
