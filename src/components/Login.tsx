@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { LogIn, Loader2, WifiOff, UserPlus } from 'lucide-react';
+import { LogIn, Loader2, WifiOff, UserPlus, ScanFace } from 'lucide-react';
 import { login, signup } from '../services/authService';
 
 interface LoginProps {
   isOnline: boolean;
   onLoginSuccess: (userId: string, email: string, isOfflineMode: boolean) => void;
+  onFaceLoginClick: () => void;
 }
 
-export function Login({ isOnline, onLoginSuccess }: LoginProps) {
+export function Login({ isOnline, onLoginSuccess, onFaceLoginClick }: LoginProps) {
   const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -213,6 +214,18 @@ export function Login({ isOnline, onLoginSuccess }: LoginProps) {
           >
             {isSignup ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
           </button>
+          
+          {!isSignup && (
+            <button
+              type="button"
+              onClick={onFaceLoginClick}
+              className="w-full flex items-center justify-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium py-2"
+            >
+              <ScanFace className="w-4 h-4" />
+              Login with Face Recognition
+            </button>
+          )}
+          
           <p className="text-sm text-gray-600">
             {isOnline ? 'Connected to server' : 'Working offline'}
           </p>

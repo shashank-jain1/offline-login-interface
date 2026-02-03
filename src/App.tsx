@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Login } from './components/Login';
+import { FaceLogin } from './components/FaceLogin';
+import { FaceRegistration } from './components/FaceRegistration';
 import { UserDetailsForm } from './components/UserDetailsForm';
 import { SyncIndicator } from './components/SyncIndicator';
 import { ReauthModal } from './components/ReauthModal';
@@ -12,12 +14,16 @@ interface UserSession {
   userId: string;
   email: string;
   isOfflineMode: boolean;
+  showFaceRegistration?: boolean;
 }
+
+type LoginView = 'password' | 'face';
 
 function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [userSession, setUserSession] = useState<UserSession | null>(null);
   const [showReauthModal, setShowReauthModal] = useState(false);
+  const [loginView, setLoginView] = useState<LoginView>('password');
 
   useEffect(() => {
     indexedDBService.init();
@@ -46,8 +52,16 @@ function App() {
     };
   }, [userSession]);
 
-  const handleLoginSuccess = (userId: string, email: string, isOfflineMode: boolean) => {
-    setUserSession({ userId, email, isOfflineMode });
+  const handleLoginSuccess = async (userId: string, email: string, isOfflineMode: boolean) => {
+    // Check if user has face data registered
+    const hasFaceData = await indexedDBService.hasFaceData(userId);
+    
+    setUserSession({ 
+      userId, 
+      email, 
+      isOfflineMode,
+      showFaceRegistration: !hasFaceData && !isOfflineMode // Only show if no face data and online
+    });
     
     // Trigger sync after login if online
     if (isOnline) {
@@ -81,7 +95,36 @@ function App() {
   };
 
   if (!userSession) {
-    return <Login isOnline={isOnline} onLoginSuccess={handleLoginSuccess} />;
+    if (loginView === 'face') {
+      return (
+        <FaceLogin
+          isOnline={isOnline}
+          onLoginSuccess={handleLoginSuccess}
+          onBack={() => setLoginView('password')}
+        />
+      );
+    }
+    
+    return (
+      <Login
+        isOnline={isOnline}
+        onLoginSuccess={handleLoginSuccess}
+        onFaceLoginClick={() => setLoginView('face')}
+      />
+    );
+  }
+
+  // Show face registration if user just logged in and doesn't have face data
+  if (userSession.showFaceRegistration) {
+    return (
+      <FaceRegistration
+        userId={userSession.userId}
+        email={userSession.email}
+        isOnline={isOnline}
+        onComplete={() => setUserSession({ ...userSession, showFaceRegistration: false })}
+        onSkip={() => setUserSession({ ...userSession, showFaceRegistration: false })}
+      />
+    );
   }
 
   return (
