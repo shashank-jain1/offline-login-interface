@@ -17,28 +17,15 @@ class SyncService {
 
   async syncPendingData(): Promise<void> {
     if (this.isSyncing) return;
-
+  
     this.isSyncing = true;
-    this.notifyListeners({ isSyncing: true, pendingCount: 0 });
-
+    
     try {
-      // Check if we have a valid session FIRST
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        // No valid session - stop immediately without trying to sync
-        const pendingRecords = await indexedDBService.getPendingSyncRecords();
-        this.isSyncing = false;
-        this.notifyListeners({
-          isSyncing: false,
-          pendingCount: pendingRecords.length,
-          error: 'Please log out and log back in to sync your changes',
-        });
-        return; // EXIT HERE - don't continue to sync
-      }
-
+      // Get pending records first
       const pendingRecords = await indexedDBService.getPendingSyncRecords();
-
+      
+      this.notifyListeners({ isSyncing: true, pendingCount: pendingRecords.length });
+  
       if (pendingRecords.length === 0) {
         this.isSyncing = false;
         this.lastSyncTime = Date.now();
@@ -49,11 +36,26 @@ class SyncService {
         });
         return;
       }
-
+  
+      // Check if we have a valid session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // No valid session - need to reauth
+        this.isSyncing = false;
+        this.notifyListeners({
+          isSyncing: false,
+          pendingCount: pendingRecords.length,
+          error: 'Authentication required. Please log in again to sync your changes.',
+        });
+        return; // EXIT HERE - don't continue to sync
+      }
+  
+      // Continue with sync...
       for (const record of pendingRecords) {
         await this.syncRecord(record);
       }
-
+  
       this.lastSyncTime = Date.now();
       this.isSyncing = false;
       this.notifyListeners({

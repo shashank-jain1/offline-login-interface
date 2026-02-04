@@ -27,28 +27,56 @@ function App() {
 
   useEffect(() => {
     indexedDBService.init();
-
+  
     const connectivityListener = async (online: boolean) => {
       setIsOnline(online);
       
       if (online && userSession) {
-        // Check if there are pending changes and if we're in offline mode
-        const pendingCount = await syncService.getPendingCount();
+        console.log('Coming back online...');
         
-        if (pendingCount > 0 && userSession.isOfflineMode) {
-          // Show reauth modal to get password
-          setShowReauthModal(true);
+        // If user was in offline mode, try to reauth first
+        if (userSession.isOfflineMode) {
+          console.log('User was offline, attempting reauth...');
+          
+          const reauthSuccess = await handleReauth();
+          
+          if (reauthSuccess) {
+            console.log('✅ Automatic reauth successful!');
+            // handleReauth already triggers sync
+          } else {
+            console.log('❌ Automatic reauth failed, showing modal...');
+            setShowReauthModal(true);
+          }
         } else {
-          // Normal sync
-          setTimeout(() => syncService.syncPendingData(), 1000);
+          // User was already online, just sync normally
+          const pendingCount = await syncService.getPendingCount();
+          if (pendingCount > 0) {
+            setTimeout(() => syncService.syncPendingData(), 1000);
+          }
         }
       }
     };
-
+  
+    // Also listen to sync errors to trigger reauth
+    const syncListener = (status: any) => {
+      if (status.error && status.error.includes('Authentication required')) {
+        console.log('Sync requires authentication, attempting reauth...');
+        if (userSession && userSession.isOfflineMode) {
+          handleReauth().then((success) => {
+            if (!success) {
+              setShowReauthModal(true);
+            }
+          });
+        }
+      }
+    };
+  
     connectivityDetector.addListener(connectivityListener);
-
+    syncService.addListener(syncListener);
+  
     return () => {
       connectivityDetector.removeListener(connectivityListener);
+      syncService.removeListener(syncListener);
     };
   }, [userSession]);
 
@@ -69,25 +97,48 @@ function App() {
     }
   };
 
-  const handleReauth = async (password: string): Promise<boolean> => {
+  const handleReauth = async (password?: string): Promise<boolean> => {
     if (!userSession) return false;
     
-    const result = await loginOnline(userSession.email, password);
-    
-    if (result.success) {
-      // Update session to mark as online mode
-      setUserSession({
-        ...userSession,
-        isOfflineMode: false,
-      });
+    try {
+      let loginResult;
       
-      // Close modal and sync
-      setShowReauthModal(false);
-      setTimeout(() => syncService.syncPendingData(), 500);
-      return true;
+      // If password is provided, use it
+      if (password) {
+        loginResult = await loginOnline(userSession.email, password);
+      } else {
+        // Try to get encrypted password from IndexedDB
+        const cachedUser = await indexedDBService.getCachedUser(userSession.email);
+        
+        if (cachedUser && cachedUser.encryptedPassword) {
+          console.log('Using stored encrypted password for reauth...');
+          // Decrypt and login
+          const decryptedPassword = atob(cachedUser.encryptedPassword);
+          loginResult = await loginOnline(userSession.email, decryptedPassword);
+        } else {
+          console.log('No encrypted password found, manual reauth required');
+          return false;
+        }
+      }
+      
+      if (loginResult.success) {
+        // Update session to mark as online mode
+        setUserSession({
+          ...userSession,
+          isOfflineMode: false,
+        });
+        
+        // Close modal and sync
+        setShowReauthModal(false);
+        setTimeout(() => syncService.syncPendingData(), 500);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Reauth error:', error);
+      return false;
     }
-    
-    return false;
   };
 
   const handleLogout = () => {
