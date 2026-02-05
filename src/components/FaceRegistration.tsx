@@ -7,6 +7,7 @@ import {
   detectFace,
   captureFaceDescriptor,
   getAverageDescriptor,
+  performLivenessCheck,
 } from '../services/faceRecognitionService';
 import { indexedDBService } from '../lib/indexedDB';
 import { supabase } from '../lib/supabase';
@@ -119,20 +120,36 @@ export function FaceRegistration({
       setError('No face detected. Please position your face in the camera.');
       return;
     }
-
+  
     setLoading(true);
     setCapturing(true);
     setError('');
     setSuccess('');
     setCaptureProgress(0);
-
+  
     try {
+      console.log('Starting liveness detection...');
+      setSuccess('Please move your head slightly...');
+      
+      // Liveness detection
+      const livenessResult = await performLivenessCheck(videoRef.current, 2000, 0.02);
+      
+      if (!livenessResult.passed) {
+        setError(livenessResult.reason || 'Liveness check failed');
+        setLoading(false);
+        setCapturing(false);
+        return;
+      }
+      
+      console.log('✓ Liveness check passed');
+      setSuccess('');
+      
       console.log('Starting face registration...');
       
-      // Capture multiple face descriptors with timeout protection
+      // Continue with existing registration code...
       const totalCaptures = 10;
       const descriptors = [];
-
+  
       for (let i = 0; i < totalCaptures; i++) {
         const progress = ((i + 1) / totalCaptures) * 100;
         setCaptureProgress(progress);
@@ -153,13 +170,13 @@ export function FaceRegistration({
         } catch (err) {
           console.warn(`Capture attempt ${i + 1} failed:`, err);
         }
-
-        // Small delay between captures
+  
         if (i < totalCaptures - 1) {
           await new Promise(resolve => setTimeout(resolve, 400));
         }
       }
-
+  
+      // Rest of the registration code stays the same...
       if (descriptors.length < 5) {
         console.error(`Only captured ${descriptors.length} descriptors`);
         setError(`Failed to capture enough face data (got ${descriptors.length}/10). Please ensure good lighting and try again.`);
@@ -168,12 +185,11 @@ export function FaceRegistration({
         setCaptureProgress(0);
         return;
       }
-
+  
       console.log(`✓ Captured ${descriptors.length} face descriptors`);
-
-      // Get average descriptor
+  
       const averageDescriptor = getAverageDescriptor(descriptors);
-
+  
       if (!averageDescriptor) {
         setError('Failed to process face data. Please try again.');
         setLoading(false);
@@ -181,11 +197,9 @@ export function FaceRegistration({
         setCaptureProgress(0);
         return;
       }
-
-      // Convert to array for storage
+  
       const descriptorArray = Array.from(averageDescriptor);
-
-      // Save to local database (separate face data table)
+  
       await indexedDBService.saveFaceData({
         userId,
         faceDescriptor: descriptorArray,
@@ -194,8 +208,7 @@ export function FaceRegistration({
       console.log(`✅ Face descriptor saved to IndexedDB for user ${userId}`);
       console.log(`Descriptor length: ${descriptorArray.length}`);
       console.log(`First few values: ${descriptorArray.slice(0, 5).join(', ')}`);
-
-      // If online, save to remote database
+  
       if (isOnline) {
         try {
           const { error: dbError } = await supabase
@@ -208,7 +221,7 @@ export function FaceRegistration({
             {
               onConflict: 'user_id',
             });
-
+  
           if (dbError) {
             console.error('Error saving face data to database:', dbError);
           } else {
@@ -218,7 +231,7 @@ export function FaceRegistration({
           console.error('Error uploading face data:', err);
         }
       }
-
+  
       setSuccess('Face registered successfully!');
       
       setTimeout(() => {

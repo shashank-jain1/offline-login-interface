@@ -10,6 +10,7 @@ import {
   detectFace,
   captureFaceDescriptor,
   getAverageDescriptor,
+  performLivenessCheck,
 } from '../services/faceRecognitionService';
 import { indexedDBService } from '../lib/indexedDB';
 
@@ -118,9 +119,28 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
     setSuccess('');
   
     try {
+      console.log('Starting liveness detection...');
+      setSuccess('Please move your head slightly...');
+      
+      // Step 1: Liveness detection
+      const livenessResult = await performLivenessCheck(videoRef.current, 2000, 0.02);
+      
+      if (!livenessResult.passed) {
+        setError(livenessResult.reason || 'Liveness check failed');
+        setLoading(false);
+        setScanning(false);
+        return;
+      }
+      
+      console.log('✓ Liveness check passed');
+      setSuccess('Liveness verified! Scanning face...');
+      
+      // Small delay for user feedback
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       console.log('Starting face capture...');
       
-      // Capture multiple face descriptors with timeout protection
+      // Step 2: Capture multiple face descriptors with timeout protection
       const descriptors = [];
       const maxAttempts = 5;
       
@@ -241,7 +261,7 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
         // Get user details from cached users
         const cachedUsers = await indexedDBService.getAllCachedUsers();
         const matchedUser = cachedUsers.find(u => u.id === matchedUserId);
-      
+  
         if (matchedUser) {
           console.log(`✅ Matched user: ${matchedUser.email}`);
           setSuccess('Face recognized! Logging in...');
