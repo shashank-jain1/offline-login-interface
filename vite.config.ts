@@ -7,4 +7,11 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  server: {
+    allowedHosts: [
+      'localhost',
+      '.ngrok-free.dev',  // Allows all ngrok subdomains
+      '.ngrok.io',        // Older ngrok domains
+    ],
+  },
 });

@@ -22,7 +22,7 @@ export function ReauthModal({ email, onReauth, onCancel }: ReauthModalProps) {
       if (!success) {
         setError('Invalid password');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Re-authentication failed');
     } finally {
       setLoading(false);

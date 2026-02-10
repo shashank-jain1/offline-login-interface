@@ -44,7 +44,7 @@ export function Login({ isOnline, onLoginSuccess, onFaceLoginClick }: LoginProps
         setPassword('');
         setConfirmPassword('');
       }, 1500);
-    } catch (err) {
+    } catch (_err) {
       setError('An unexpected error occurred');
     } finally {
       setLoading(false);
@@ -65,7 +65,7 @@ export function Login({ isOnline, onLoginSuccess, onFaceLoginClick }: LoginProps
       } else {
         setError(result.error || 'Login failed');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('An unexpected error occurred');
     } finally {
       setLoading(false);
@@ -214,7 +214,7 @@ export function Login({ isOnline, onLoginSuccess, onFaceLoginClick }: LoginProps
           >
             {isSignup ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
           </button>
-          
+
           {!isSignup && (
             <button
               type="button"
@@ -225,7 +225,7 @@ export function Login({ isOnline, onLoginSuccess, onFaceLoginClick }: LoginProps
               Login with Face Recognition
             </button>
           )}
-          
+
           <p className="text-sm text-gray-600">
             {isOnline ? 'Connected to server' : 'Working offline'}
           </p>

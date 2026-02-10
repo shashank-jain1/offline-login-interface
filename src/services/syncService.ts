@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { indexedDBService, LocalUserDetails } from '../lib/indexedDB';
+import { indexedDBService, LocalUserDetails, LocalAttendanceRecord } from '../lib/indexedDB';
 
 export type SyncListener = (status: SyncStatus) => void;
 
@@ -17,16 +17,36 @@ class SyncService {
 
   async syncPendingData(): Promise<void> {
     if (this.isSyncing) return;
-  
+
     this.isSyncing = true;
-    
+
     try {
-      // Get pending records first
-      const pendingRecords = await indexedDBService.getPendingSyncRecords();
-      
-      this.notifyListeners({ isSyncing: true, pendingCount: pendingRecords.length });
-  
-      if (pendingRecords.length === 0) {
+      // Check if we have a valid session FIRST
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        // No valid session - need to reauth
+        const pendingUserDetails = await indexedDBService.getPendingSyncRecords();
+        const pendingAttendance = await indexedDBService.getPendingAttendanceRecords();
+        const totalPending = pendingUserDetails.length + pendingAttendance.length;
+
+        this.isSyncing = false;
+        this.notifyListeners({
+          isSyncing: false,
+          pendingCount: totalPending,
+          error: 'Authentication required. Please log in again to sync your changes.',
+        });
+        return;
+      }
+
+      // Get pending records
+      const pendingUserDetails = await indexedDBService.getPendingSyncRecords();
+      const pendingAttendance = await indexedDBService.getPendingAttendanceRecords();
+      const totalPending = pendingUserDetails.length + pendingAttendance.length;
+
+      this.notifyListeners({ isSyncing: true, pendingCount: totalPending });
+
+      if (totalPending === 0) {
         this.isSyncing = false;
         this.lastSyncTime = Date.now();
         this.notifyListeners({
@@ -36,26 +56,17 @@ class SyncService {
         });
         return;
       }
-  
-      // Check if we have a valid session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        // No valid session - need to reauth
-        this.isSyncing = false;
-        this.notifyListeners({
-          isSyncing: false,
-          pendingCount: pendingRecords.length,
-          error: 'Authentication required. Please log in again to sync your changes.',
-        });
-        return; // EXIT HERE - don't continue to sync
+
+      // Sync user details
+      for (const record of pendingUserDetails) {
+        await this.syncUserDetailsRecord(record);
       }
-  
-      // Continue with sync...
-      for (const record of pendingRecords) {
-        await this.syncRecord(record);
+
+      // Sync attendance records
+      for (const record of pendingAttendance) {
+        await this.syncAttendanceRecord(record);
       }
-  
+
       this.lastSyncTime = Date.now();
       this.isSyncing = false;
       this.notifyListeners({
@@ -67,8 +78,9 @@ class SyncService {
       this.isSyncing = false;
       let pendingCount = 0;
       try {
-        const pendingRecords = await indexedDBService.getPendingSyncRecords();
-        pendingCount = pendingRecords.length;
+        const pendingUserDetails = await indexedDBService.getPendingSyncRecords();
+        const pendingAttendance = await indexedDBService.getPendingAttendanceRecords();
+        pendingCount = pendingUserDetails.length + pendingAttendance.length;
       } catch {
         // Ignore error getting pending count
       }
@@ -80,35 +92,37 @@ class SyncService {
     }
   }
 
-  private async syncRecord(record: LocalUserDetails): Promise<void> {
+  private async syncUserDetailsRecord(record: LocalUserDetails): Promise<void> {
     const { data: existingData } = await supabase
       .from('user_details')
       .select('updated_at')
       .eq('user_id', record.userId)
       .maybeSingle();
 
+    const syncData = {
+      name: record.name,
+      age: record.age,
+      phone: record.phone,
+      date_of_birth: record.dateOfBirth,
+      employee_id: record.employee_id,
+      district: record.district,
+      block: record.block,
+      office_code: record.office_code,
+      updated_at: new Date(record.updatedAt).toISOString(),
+    };
+
     if (existingData) {
       const remoteUpdatedAt = new Date(existingData.updated_at).getTime();
       if (record.updatedAt > remoteUpdatedAt) {
         await supabase
           .from('user_details')
-          .update({
-            name: record.name,
-            age: record.age,
-            phone: record.phone,
-            date_of_birth: record.dateOfBirth,
-            updated_at: new Date(record.updatedAt).toISOString(),
-          })
+          .update(syncData)
           .eq('user_id', record.userId);
       }
     } else {
       await supabase.from('user_details').insert({
         user_id: record.userId,
-        name: record.name,
-        age: record.age,
-        phone: record.phone,
-        date_of_birth: record.dateOfBirth,
-        updated_at: new Date(record.updatedAt).toISOString(),
+        ...syncData,
       });
     }
 
@@ -117,9 +131,42 @@ class SyncService {
     }
   }
 
+  private async syncAttendanceRecord(record: LocalAttendanceRecord): Promise<void> {
+    // Remove local-only fields
+    const { id, pending_sync: _pending_sync, ...attendanceData } = record;
+    void _pending_sync; // Acknowledge _pending_sync is intentionally unused
+
+    // Check if record exists
+    const { data: existingData } = await supabase
+      .from('attendance')
+      .select('id, updated_at')
+      .eq('user_id', record.user_id)
+      .eq('date', record.date)
+      .maybeSingle();
+
+    if (existingData) {
+      // Update existing record
+      await supabase
+        .from('attendance')
+        .update(attendanceData)
+        .eq('id', existingData.id);
+    } else {
+      // Insert new record
+      await supabase
+        .from('attendance')
+        .insert(attendanceData);
+    }
+
+    // Mark as synced in IndexedDB
+    if (id) {
+      await indexedDBService.markAttendanceAsSynced(id);
+    }
+  }
+
   async getPendingCount(): Promise<number> {
-    const records = await indexedDBService.getPendingSyncRecords();
-    return records.length;
+    const userDetailsRecords = await indexedDBService.getPendingSyncRecords();
+    const attendanceRecords = await indexedDBService.getPendingAttendanceRecords();
+    return userDetailsRecords.length + attendanceRecords.length;
   }
 
   addListener(listener: SyncListener) {

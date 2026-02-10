@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+
+import { useRef, useState, useEffect } from 'react';
 import { Camera, Loader2, CheckCircle2, XCircle, ScanFace } from 'lucide-react';
 import {
   loadModels,
@@ -27,6 +28,7 @@ export function FaceRegistration({
   onComplete,
   onSkip,
 }: FaceRegistrationProps) {
+  void _email;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,9 +50,9 @@ export function FaceRegistration({
         console.log('Loading face recognition models...');
         await loadModels();
         console.log('Models loaded successfully');
-        
+
         if (!isMounted) return;
-        
+
         setModelsLoading(false);
 
         // Wait a bit for video element to be mounted
@@ -64,15 +66,15 @@ export function FaceRegistration({
 
         console.log('Starting video stream...');
         const stream = await startVideoStream(videoRef.current);
-        
+
         if (!isMounted) {
           stopVideoStream(stream);
           return;
         }
-        
+
         streamRef.current = stream;
         console.log('Video stream started');
-        
+
         // Start face detection
         detectionInterval = setInterval(async () => {
           if (videoRef.current && !capturing && isMounted) {
@@ -96,11 +98,11 @@ export function FaceRegistration({
     return () => {
       isMounted = false;
       console.log('[FaceRegistration] Cleaning up...');
-      
+
       if (detectionInterval) {
         clearInterval(detectionInterval);
       }
-      
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
@@ -120,49 +122,49 @@ export function FaceRegistration({
       setError('No face detected. Please position your face in the camera.');
       return;
     }
-  
+
     setLoading(true);
     setCapturing(true);
     setError('');
     setSuccess('');
     setCaptureProgress(0);
-  
+
     try {
       console.log('Starting liveness detection...');
       setSuccess('Please move your head slightly...');
-      
+
       // Liveness detection
       const livenessResult = await performLivenessCheck(videoRef.current, 2000, 0.02);
-      
+
       if (!livenessResult.passed) {
         setError(livenessResult.reason || 'Liveness check failed');
         setLoading(false);
         setCapturing(false);
         return;
       }
-      
+
       console.log('✓ Liveness check passed');
       setSuccess('');
-      
+
       console.log('Starting face registration...');
-      
+
       // Continue with existing registration code...
       const totalCaptures = 10;
       const descriptors = [];
-  
+
       for (let i = 0; i < totalCaptures; i++) {
         const progress = ((i + 1) / totalCaptures) * 100;
         setCaptureProgress(progress);
         console.log(`Capture ${i + 1}/${totalCaptures} (${Math.round(progress)}%)...`);
-        
+
         try {
           const descriptor = await Promise.race([
             captureFaceDescriptor(videoRef.current),
-            new Promise<null>((_, reject) => 
+            new Promise<null>((_, reject) =>
               setTimeout(() => reject(new Error('Timeout')), 3000)
             )
           ]);
-          
+
           if (descriptor) {
             descriptors.push(descriptor);
             console.log(`✓ Captured descriptor ${i + 1}`);
@@ -170,12 +172,12 @@ export function FaceRegistration({
         } catch (err) {
           console.warn(`Capture attempt ${i + 1} failed:`, err);
         }
-  
+
         if (i < totalCaptures - 1) {
           await new Promise(resolve => setTimeout(resolve, 400));
         }
       }
-  
+
       // Rest of the registration code stays the same...
       if (descriptors.length < 5) {
         console.error(`Only captured ${descriptors.length} descriptors`);
@@ -185,11 +187,11 @@ export function FaceRegistration({
         setCaptureProgress(0);
         return;
       }
-  
+
       console.log(`✓ Captured ${descriptors.length} face descriptors`);
-  
+
       const averageDescriptor = getAverageDescriptor(descriptors);
-  
+
       if (!averageDescriptor) {
         setError('Failed to process face data. Please try again.');
         setLoading(false);
@@ -197,9 +199,9 @@ export function FaceRegistration({
         setCaptureProgress(0);
         return;
       }
-  
+
       const descriptorArray = Array.from(averageDescriptor);
-  
+
       await indexedDBService.saveFaceData({
         userId,
         faceDescriptor: descriptorArray,
@@ -208,7 +210,7 @@ export function FaceRegistration({
       console.log(`✅ Face descriptor saved to IndexedDB for user ${userId}`);
       console.log(`Descriptor length: ${descriptorArray.length}`);
       console.log(`First few values: ${descriptorArray.slice(0, 5).join(', ')}`);
-  
+
       if (isOnline) {
         try {
           const { error: dbError } = await supabase
@@ -218,10 +220,10 @@ export function FaceRegistration({
               face_descriptor: descriptorArray,
               updated_at: new Date().toISOString(),
             },
-            {
-              onConflict: 'user_id',
-            });
-  
+              {
+                onConflict: 'user_id',
+              });
+
           if (dbError) {
             console.error('Error saving face data to database:', dbError);
           } else {
@@ -231,9 +233,9 @@ export function FaceRegistration({
           console.error('Error uploading face data:', err);
         }
       }
-  
+
       setSuccess('Face registered successfully!');
-      
+
       setTimeout(() => {
         cleanupCamera();
         onComplete();
@@ -274,6 +276,7 @@ export function FaceRegistration({
                 playsInline
                 muted
                 className="w-full h-auto"
+                style={{ transform: 'scaleX(-1)' }}
               />
 
               {/* Face detection overlay */}
