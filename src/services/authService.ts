@@ -11,7 +11,6 @@ async function hashPassword(password: string): Promise<string> {
 
 // Simple encryption for storing password (browser-level security)
 async function encryptPassword(password: string): Promise<string> {
-  // Base64 encode (simple obfuscation - browser storage is already encrypted by OS)
   return btoa(password);
 }
 
@@ -41,12 +40,12 @@ export async function loginOnline(email: string, password: string): Promise<Auth
     if (data.user) {
       const passwordHash = await hashPassword(password);
       const encryptedPassword = await encryptPassword(password);
-      
+
       await indexedDBService.cacheUser({
         id: data.user.id,
         email: data.user.email!,
         passwordHash,
-        encryptedPassword, // Store encrypted password for face login
+        encryptedPassword,
         lastLogin: Date.now(),
       });
 
@@ -59,7 +58,7 @@ export async function loginOnline(email: string, password: string): Promise<Auth
     }
 
     return { success: false, error: 'Login failed' };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Network error' };
   }
 }
@@ -92,15 +91,16 @@ export async function loginOffline(email: string, password: string): Promise<Aut
       email: cachedUser.email,
       isOfflineMode: true,
     };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Offline login failed' };
   }
 }
 
-export async function loginWithFace(userId: string, email: string, isOnline: boolean): Promise<AuthResult> {
+export async function loginWithFace(_userId: string, email: string, isOnline: boolean): Promise<AuthResult> {
+  void _userId;
   try {
     const cachedUser = await indexedDBService.getCachedUser(email);
-    
+
     if (!cachedUser) {
       return {
         success: false,
@@ -112,7 +112,7 @@ export async function loginWithFace(userId: string, email: string, isOnline: boo
     if (isOnline && cachedUser.encryptedPassword) {
       try {
         const password = await decryptPassword(cachedUser.encryptedPassword);
-        
+
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -165,7 +165,7 @@ export async function loginWithFace(userId: string, email: string, isOnline: boo
       email: cachedUser.email,
       isOfflineMode: true,
     };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Face login failed' };
   }
 }
@@ -185,8 +185,8 @@ export async function login(email: string, password: string, isOnline: boolean):
 export async function logout(): Promise<void> {
   try {
     await supabase.auth.signOut();
-  } catch (error) {
-    console.error('Logout error:', error);
+  } catch (_error) {
+    console.error('Logout error:', _error);
   }
 }
 
@@ -210,7 +210,7 @@ export async function signup(email: string, password: string): Promise<AuthResul
     }
 
     return { success: false, error: 'Signup failed' };
-  } catch (error) {
+  } catch (_error) {
     return { success: false, error: 'Network error during signup' };
   }
 }

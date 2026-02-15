@@ -10,6 +10,8 @@ import {
   detectFace,
   captureFaceDescriptor,
   getAverageDescriptor,
+  performLivenessCheck,
+  detectBlink,
 } from '../services/faceRecognitionService';
 import { indexedDBService } from '../lib/indexedDB';
 
@@ -41,9 +43,9 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
         console.log('Loading face recognition models...');
         await loadModels();
         console.log('Models loaded successfully');
-        
+
         if (!isMounted) return;
-        
+
         setModelsLoading(false);
 
         // Wait a bit for video element to be mounted
@@ -57,15 +59,15 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
 
         console.log('Starting video stream...');
         const stream = await startVideoStream(videoRef.current);
-        
+
         if (!isMounted) {
           stopVideoStream(stream);
           return;
         }
-        
+
         streamRef.current = stream;
         console.log('Video stream started');
-        
+
         // Start face detection
         detectionInterval = setInterval(async () => {
           if (videoRef.current && !scanning && isMounted) {
@@ -89,11 +91,11 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
     return () => {
       isMounted = false;
       console.log('[FaceLogin] Component unmounting, cleaning up...');
-      
+
       if (detectionInterval) {
         clearInterval(detectionInterval);
       }
-      
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
@@ -111,72 +113,104 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
       setError('No face detected. Please position your face in the camera.');
       return;
     }
-  
+
     setLoading(true);
     setScanning(true);
     setError('');
     setSuccess('');
-  
+
     try {
+      console.log('Starting liveness detection...');
+      setSuccess('Please move your head slightly...');
+
+      // Step 1: Liveness detection
+      const livenessResult = await performLivenessCheck(videoRef.current, 2000, 0.02);
+
+      if (!livenessResult.passed) {
+        setError(livenessResult.reason || 'Liveness check failed');
+        setLoading(false);
+        setScanning(false);
+        return;
+      }
+
+      console.log('✓ Liveness check passed');
+
+      // Step 2: Blink Detection
+      setSuccess('Please blink your eyes...');
+      const blinkResult = await detectBlink(videoRef.current, 10000);
+
+      if (!blinkResult.success) {
+        setSuccess(''); // Clear the "Please blink" message
+        setError(blinkResult.message || 'Blink not detected. Please try again.');
+        setLoading(false);
+        setScanning(false);
+        return;
+      }
+
+      setSuccess('Blink verified! Scanning face...');
+
+      // Small delay for user feedback
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       console.log('Starting face capture...');
-      
-      // Capture multiple face descriptors with timeout protection
+
+      // Step 2: Capture multiple face descriptors with timeout protection
       const descriptors = [];
       const maxAttempts = 5;
-      
+
       for (let i = 0; i < maxAttempts; i++) {
         console.log(`Capture attempt ${i + 1}/${maxAttempts}...`);
-        
+
         try {
           const descriptor = await Promise.race([
             captureFaceDescriptor(videoRef.current),
-            new Promise<null>((_, reject) => 
+            new Promise<null>((_, reject) =>
               setTimeout(() => reject(new Error('Timeout')), 3000)
             )
           ]);
-          
+
           if (descriptor) {
             descriptors.push(descriptor);
             console.log(`✓ Captured descriptor ${i + 1}`);
           }
-          
+
           if (descriptors.length >= 3) {
             break;
           }
-          
+
           await new Promise(resolve => setTimeout(resolve, 300));
         } catch (err) {
           console.warn(`Capture attempt ${i + 1} failed:`, err);
         }
       }
-  
+
       if (descriptors.length === 0) {
         setError('Failed to capture face data. Please ensure good lighting and try again.');
         setLoading(false);
         setScanning(false);
         return;
       }
-  
+
       console.log(`Captured ${descriptors.length} face descriptors`);
-  
+
       const capturedDescriptor = getAverageDescriptor(descriptors);
-  
+
       if (!capturedDescriptor) {
         setError('Failed to process face data. Please try again.');
         setLoading(false);
         setScanning(false);
         return;
       }
-  
+
       console.log('Processing captured descriptor...');
-  
+
       // Get face data from IndexedDB
       const allFaceData = await indexedDBService.getAllFaceData();
       console.log(`Found ${allFaceData.length} face data entries in IndexedDB`);
-  
+
       let matchedUserId = null;
       let bestMatchDistance = Infinity;
-  
+
       // Check IndexedDB first
       for (const faceData of allFaceData) {
         if (faceData.faceDescriptor && faceData.faceDescriptor.length > 0) {
@@ -184,41 +218,41 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
             capturedDescriptor,
             faceData.faceDescriptor
           );
-  
+
           console.log(`User ${faceData.userId}: distance = ${distance.toFixed(4)}`);
-  
-          if (distance < 0.7 && distance < bestMatchDistance) {
+
+          if (distance < 0.45 && distance < bestMatchDistance) {
             bestMatchDistance = distance;
             matchedUserId = faceData.userId;
           }
         }
       }
-  
+
       // If online and no match found in IndexedDB, check Supabase
       if (!matchedUserId && isOnline) {
         console.log('No local match, checking online database...');
-        
+
         try {
           const { data: onlineFaceData, error } = await supabase
             .from('user_face_data')
             .select('user_id, face_descriptor');
-  
+
           if (!error && onlineFaceData) {
             console.log(`Found ${onlineFaceData.length} face data entries online`);
-            
+
             for (const faceData of onlineFaceData) {
               if (faceData.face_descriptor && faceData.face_descriptor.length > 0) {
                 const distance = compareFaceDescriptors(
                   capturedDescriptor,
                   faceData.face_descriptor
                 );
-  
+
                 console.log(`Online user ${faceData.user_id}: distance = ${distance.toFixed(4)}`);
-  
-                if (distance < 0.7 && distance < bestMatchDistance) {
+
+                if (distance < 0.45 && distance < bestMatchDistance) {
                   bestMatchDistance = distance;
                   matchedUserId = faceData.user_id;
-                  
+
                   // Cache this face data locally for future offline use
                   await indexedDBService.saveFaceData({
                     userId: faceData.user_id,
@@ -234,21 +268,21 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
           console.error('Error checking online face data:', err);
         }
       }
-  
+
       console.log(`Best match distance: ${bestMatchDistance.toFixed(4)}`);
-  
+
       if (matchedUserId) {
         // Get user details from cached users
         const cachedUsers = await indexedDBService.getAllCachedUsers();
         const matchedUser = cachedUsers.find(u => u.id === matchedUserId);
-      
+
         if (matchedUser) {
           console.log(`✅ Matched user: ${matchedUser.email}`);
           setSuccess('Face recognized! Logging in...');
-          
+
           // Use face login which will authenticate with Supabase if online
           const loginResult = await loginWithFace(matchedUser.id, matchedUser.email, isOnline);
-          
+
           if (loginResult.success) {
             setTimeout(() => {
               if (streamRef.current) {
@@ -308,8 +342,9 @@ export function FaceLogin({ isOnline, onLoginSuccess, onBack }: FaceLoginProps) 
                 playsInline
                 muted
                 className="w-full h-auto"
+                style={{ transform: 'scaleX(-1)' }}
               />
-              
+
               {/* Face detection overlay */}
               <div className="absolute top-4 right-4">
                 {faceDetected ? (
